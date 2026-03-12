@@ -7,12 +7,11 @@
 
 // ============================================================
 //  Configuration
-//  Change these values to experiment with different setups.
 // ============================================================
-static const int    N              = 41;      // Grid resolution (41x41 is a good start)
+static const int    N              = 81;      // Grid resolution 
 static const double NU             = 0.01;    // Viscosity  ->  Re = 1/nu = 100
 static const double DT             = 0.001;   // Timestep   ->  must satisfy CFL condition
-static const int    TOTAL_STEPS    = 15000;    // Total timesteps to simulate
+static const int    TOTAL_STEPS    = 20000;    // Total timesteps to simulate
 static const int    OUTPUT_EVERY   = 100;     // Write CSV every N steps
 static const int    PRESSURE_ITERS = 50;      // Jacobi iterations per step
 static const std::string OUTPUT_DIR = "output";
