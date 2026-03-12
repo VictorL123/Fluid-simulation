@@ -3,6 +3,7 @@
 #include <string>
 #include <filesystem>
 #include <cmath>
+#include <fstream>
 
 // ============================================================
 //  Configuration
@@ -15,6 +16,11 @@ static const int    TOTAL_STEPS    = 15000;    // Total timesteps to simulate
 static const int    OUTPUT_EVERY   = 100;     // Write CSV every N steps
 static const int    PRESSURE_ITERS = 50;      // Jacobi iterations per step
 static const std::string OUTPUT_DIR = "output";
+
+// Probe point — records u,v at this cell every timestep for signal analysis
+// Default: centre of the cavity
+static const int PROBE_I = N / 2;
+static const int PROBE_J = N / 2;
 
 // ============================================================
 //  Helpers
@@ -70,6 +76,10 @@ int main() {
     // --- Write initial state ---
     write_csv(g, output_filename(0));
 
+    // --- Open probe file for time series recording ---
+    std::ofstream probe_file(OUTPUT_DIR + "/probe_timeseries.csv");
+    probe_file << "step,t,u,v,speed\n";
+
     // ============================================================
     //  Main time-stepping loop
     //
@@ -82,6 +92,15 @@ int main() {
     for (int s = 1; s <= TOTAL_STEPS; s++) {
 
         step(g, PRESSURE_ITERS);
+
+        // --- Record probe point every timestep ---
+        {
+            double u_p = g.u[g.idx(PROBE_I, PROBE_J)];
+            double v_p = g.v[g.idx(PROBE_I, PROBE_J)];
+            double sp  = std::sqrt(u_p*u_p + v_p*v_p);
+            double t   = s * g.dt;
+            probe_file << s << "," << t << "," << u_p << "," << v_p << "," << sp << "\n";
+        }
 
         // --- Stability check ---
         if (is_unstable(g)) {
