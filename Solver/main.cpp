@@ -4,28 +4,27 @@
 #include <filesystem>
 #include <cmath>
 #include <fstream>
+#include <iomanip>
 
 // ============================================================
-//  Configuration
+//  Configuration — defaults, can be overridden via command line
+//  Usage: ./fluid_sim_omp.exe [nu] [total_steps] [output_every]
+//  Example: ./fluid_sim_omp.exe 0.01 15000 100
 // ============================================================
-static const int    N              = 81;      // Grid resolution 
-static const double NU             = 0.01;    // Viscosity  ->  Re = 1/nu = 100
-static const double DT             = 0.001;   // Timestep   ->  must satisfy CFL condition
-static const int    TOTAL_STEPS    = 20000;    // Total timesteps to simulate
-static const int    OUTPUT_EVERY   = 100;     // Write CSV every N steps
-static const int    PRESSURE_ITERS = 50;      // Jacobi iterations per step
+static const int    N              = 41;
+static const double NU             = 0.01;
+static const double DT             = 0.001;
+static const int    TOTAL_STEPS    = 15000;
+static const int    OUTPUT_EVERY   = 100;
+static const int    PRESSURE_ITERS = 50;
 static const std::string OUTPUT_DIR = "output";
 
-// Probe point — records u,v at this cell every timestep for signal analysis
-// Default: centre of the cavity
 static const int PROBE_I = N / 2;
 static const int PROBE_J = N / 2;
 
 // ============================================================
 //  Helpers
 // ============================================================
-
-// Check if simulation has gone unstable (any NaN or very large value)
 bool is_unstable(const Grid& g) {
     for (double val : g.u) {
         if (std::isnan(val) || std::abs(val) > 1e6) return true;
@@ -33,9 +32,7 @@ bool is_unstable(const Grid& g) {
     return false;
 }
 
-// Print a progress update to stdout
 void print_progress(int step, int total, const Grid& g) {
-    // Find max velocity magnitude for monitoring
     double max_speed = 0.0;
     for (int i = 0; i < g.N*g.N; i++) {
         double speed = std::sqrt(g.u[i]*g.u[i] + g.v[i]*g.v[i]);
@@ -46,7 +43,6 @@ void print_progress(int step, int total, const Grid& g) {
               << "\n";
 }
 
-// Zero-padded filename, e.g. step 500 -> "output/step_00500.csv"
 std::string output_filename(int step) {
     char buf[64];
     std::snprintf(buf, sizeof(buf), "%s/step_%05d.csv", OUTPUT_DIR.c_str(), step);
@@ -55,18 +51,35 @@ std::string output_filename(int step) {
 
 // ============================================================
 //  main
+//  Accepts optional command line arguments:
+//    argv[1] = nu          (viscosity, default 0.01)
+//    argv[2] = total_steps (default 15000)
+//    argv[3] = output_every (default 100)
+//
+//  This allows generate_data.py to call the solver with
+//  different nu values WITHOUT recompiling each time.
 // ============================================================
-int main() {
+int main(int argc, char* argv[]) {
     std::cout << "=== Lid-Driven Cavity Solver ===\n\n";
 
-    // --- Create output directory ---
     std::filesystem::create_directories(OUTPUT_DIR);
 
-    // --- Set up grid ---
+    // --- Set up grid with defaults ---
     Grid g;
     g.N  = N;
     g.dt = DT;
     g.nu = NU;
+    int total_steps  = TOTAL_STEPS;
+    int output_every = OUTPUT_EVERY;
+
+    // --- Override from command line if provided ---
+    if (argc > 1) g.nu        = std::stod(argv[1]);
+    if (argc > 2) total_steps = std::stoi(argv[2]);
+    if (argc > 3) output_every= std::stoi(argv[3]);
+
+    std::cout << "[config] nu=" << g.nu
+              << "  Re=" << (1.0/g.nu)
+              << "  steps=" << total_steps << "\n";
 
     initialise(g);
     check_stability(g);
@@ -75,24 +88,18 @@ int main() {
     // --- Write initial state ---
     write_csv(g, output_filename(0));
 
-    // --- Open probe file for time series recording ---
+    // --- Open probe file ---
     std::ofstream probe_file(OUTPUT_DIR + "/probe_timeseries.csv");
     probe_file << "step,t,u,v,speed\n";
 
     // ============================================================
     //  Main time-stepping loop
-    //
-    //  Each call to step() does:
-    //    1. apply_boundary()             — set lid + wall BCs
-    //    2. compute_intermediate_velocity() — advect + diffuse
-    //    3. solve_pressure()             — Poisson solve
-    //    4. correct_velocity()           — project to div-free
     // ============================================================
-    for (int s = 1; s <= TOTAL_STEPS; s++) {
+    for (int s = 1; s <= total_steps; s++) {
 
         step(g, PRESSURE_ITERS);
 
-        // --- Record probe point every timestep ---
+        // Record probe point
         {
             double u_p = g.u[g.idx(PROBE_I, PROBE_J)];
             double v_p = g.v[g.idx(PROBE_I, PROBE_J)];
@@ -101,23 +108,20 @@ int main() {
             probe_file << s << "," << t << "," << u_p << "," << v_p << "," << sp << "\n";
         }
 
-        // --- Stability check ---
+        // Stability check
         if (is_unstable(g)) {
             std::cerr << "\n[ERROR] Simulation went unstable at step " << s << "!\n";
-            std::cerr << "        Try reducing dt (currently " << DT << ")\n";
-            std::cerr << "        or reducing N (currently " << N << ")\n";
+            std::cerr << "        Try reducing dt (currently " << g.dt << ")\n";
             return 1;
         }
 
-        // --- Progress output ---
-        if (s % OUTPUT_EVERY == 0) {
-            print_progress(s, TOTAL_STEPS, g);
+        // Progress + CSV output
+        if (s % output_every == 0) {
+            print_progress(s, total_steps, g);
             write_csv(g, output_filename(s));
         }
     }
 
     std::cout << "\nSimulation complete. Output written to ./" << OUTPUT_DIR << "/\n";
-    std::cout << "Run validate/plot.py to visualise results.\n";
-
     return 0;
 }

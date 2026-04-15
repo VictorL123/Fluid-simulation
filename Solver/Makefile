@@ -33,12 +33,12 @@ run: all
 	./$(TARGET)
 
 # ============================================================
-#  OpenMP build  (Phase 2 — uncomment when ready)
+#  OpenMP build  (Phase 2)
 #  Adds -fopenmp flag to enable #pragma omp parallel for
 # ============================================================
-# omp: $(SRCS) solver.h
-# 	$(CXX) $(CXXFLAGS) -fopenmp -o $(TARGET)_omp $(SRCS)
-# 	@echo "OpenMP build successful: ./$(TARGET)_omp"
+omp: $(SRCS) solver.h
+	$(CXX) $(CXXFLAGS) -fopenmp -o $(TARGET)_omp $(SRCS)
+	@echo "OpenMP build successful: ./$(TARGET)_omp"
 
 # ============================================================
 #  Clean
