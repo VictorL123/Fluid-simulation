@@ -10,11 +10,14 @@
 //  initialise
 // ============================================================
 void initialise(Grid& g) {
+    // Checks grid must be at least 3x3
     if (g.N < 3) throw std::invalid_argument("N must be >= 3");
 
+    // Calculate spacing between grid points
     g.dx = 1.0 / (g.N - 1);
     g.dy = 1.0 / (g.N - 1);
 
+    // Initialise array
     int total = g.N * g.N;
     g.u.assign(total, 0.0);
     g.v.assign(total, 0.0);
@@ -42,25 +45,20 @@ void initialise(Grid& g) {
 }
 
 // ============================================================
-//  apply_boundary
+//  apply_boundary for Lid-driven Cavity setup
 //  Called at the START of every timestep, serially.
 //
-//  Boundary conditions:
-//    Top lid  (i = N-1):  u = 1.0,  v = 0   <- moves right
-//    Bottom   (i = 0):    u = 0,    v = 0   <- no-slip wall
-//    Left     (j = 0):    u = 0,    v = 0   <- no-slip wall
-//    Right    (j = N-1):  u = 0,    v = 0   <- no-slip wall
 // ============================================================
 void apply_boundary(Grid& g) {
     int N = g.N;
     for (int k = 0; k < N; k++) {
-        g.u[g.idx(N-1, k)] =  1.0;
-        g.v[g.idx(N-1, k)] =  0.0;
-        g.u[g.idx(0,   k)] =  0.0;
+        g.u[g.idx(N-1, k)] =  1.0; // Top lid moves right at speed 1
+        g.v[g.idx(N-1, k)] =  0.0; // Top lid doesn't move up/down
+        g.u[g.idx(0,   k)] =  0.0; // Bottom wall has no movement
         g.v[g.idx(0,   k)] =  0.0;
-        g.u[g.idx(k,   0)] =  0.0;
+        g.u[g.idx(k,   0)] =  0.0; // Left wall has no movement
         g.v[g.idx(k,   0)] =  0.0;
-        g.u[g.idx(k, N-1)] =  0.0;
+        g.u[g.idx(k, N-1)] =  0.0; // Right wall has no movement
         g.v[g.idx(k, N-1)] =  0.0;
     }
 }
@@ -118,6 +116,7 @@ void compute_intermediate_velocity(Grid& g) {
                 (g.v[g.idx(i,   j+1)] - 2.0*v_c + g.v[g.idx(i,   j-1)]) / (dx*dx) +
                 (g.v[g.idx(i+1, j  )] - 2.0*v_c + g.v[g.idx(i-1, j  )]) / (dy*dy);
 
+            // Combine effects to get intermediate velocity
             g.u_star[g.idx(i,j)] = u_c + dt * (-u_c*dudx - v_c*dudy + nu*lap_u);
             g.v_star[g.idx(i,j)] = v_c + dt * (-u_c*dvdx - v_c*dvdy + nu*lap_v);
         }
@@ -150,10 +149,12 @@ void solve_pressure(Grid& g, int niter) {
         #pragma omp for schedule(static)
         for (int i = 1; i < N-1; i++) {
             for (int j = 1; j < N-1; j++) {
+                // Calculates divergence at each point
                 double div =
                     (g.u_star[g.idx(i, j+1)] - g.u_star[g.idx(i, j-1)]) / (2.0*dx) +
                     (g.v_star[g.idx(i+1, j)] - g.v_star[g.idx(i-1, j)]) / (2.0*dy);
 
+                // New pressure is the average of its four neighbours adjusted by the divergence
                 g.p_new[g.idx(i,j)] = 0.25 * (
                     g.p[g.idx(i,   j+1)] +
                     g.p[g.idx(i,   j-1)] +
@@ -166,10 +167,10 @@ void solve_pressure(Grid& g, int niter) {
         // Implicit barrier — all threads done before swap
 
         // One thread does boundary update and swap.
-        // omp single has implicit barrier at end so all threads
-        // wait here before starting the next Jacobi iteration.
+        // omp single has implicit barrier at end so all threads wait here before starting the next Jacobi iteration.
         #pragma omp single
         {
+            // No pressure gradient at the wall
             for (int k = 0; k < N; k++) {
                 g.p_new[g.idx(0,   k)] = g.p_new[g.idx(1,   k)];
                 g.p_new[g.idx(N-1, k)] = g.p_new[g.idx(N-2, k)];
@@ -216,13 +217,14 @@ void correct_velocity(Grid& g) {
 //  not N^2) so it runs before the parallel region opens.
 // ============================================================
 void step(Grid& g, int pressure_iters) {
-    apply_boundary(g);
+    apply_boundary(g); // Step 1 Lock wall velocities
 
+    // Threads are only spawned once per timestamp
     #pragma omp parallel
     {
-        compute_intermediate_velocity(g);
-        solve_pressure(g, pressure_iters);
-        correct_velocity(g);
+        compute_intermediate_velocity(g); // Step 2 Advect + diffuse
+        solve_pressure(g, pressure_iters); // Step 3 Solve pressure with 50 iterations
+        correct_velocity(g); // Project to divergence-free
     }
 }
 
@@ -230,6 +232,7 @@ void step(Grid& g, int pressure_iters) {
 //  check_stability
 // ============================================================
 void check_stability(const Grid& g) {
+    // Apply stability conditions for numerical methods
     double cfl_limit  = g.dx / 1.0;
     double diff_limit = (g.dx * g.dx) / (2.0 * g.nu);
     double safe_dt    = 0.5 * std::min(cfl_limit, diff_limit);
