@@ -25,6 +25,8 @@ static const int PROBE_J = N / 2;
 // ============================================================
 //  Helpers
 // ============================================================
+
+// Checks if simulation has blown up
 bool is_unstable(const Grid& g) {
     for (double val : g.u) {
         if (std::isnan(val) || std::abs(val) > 1e6) return true;
